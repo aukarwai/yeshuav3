@@ -71,6 +71,17 @@ button:active { transform:translateY(1px); }
 .clockBox { min-height:58px; padding:9px; border:1px solid var(--line); border-radius:8px; background:#171a19; display:flex; flex-direction:column; justify-content:space-between; }
 .clockBox span { color:var(--muted); font-size:11px; text-transform:uppercase; }
 .clockBox b { font-size:13px; overflow-wrap:anywhere; }
+.arrayLens { padding:12px; border:1px solid var(--line); border-radius:8px; background:#121414; display:grid; gap:10px; }
+.arrayHead { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.arrayHead strong { font-size:18px; }
+.arrayHead strong.reclaim,.arrayHead strong.support { color:var(--green); }
+.arrayHead strong.touch,.arrayHead strong.watch,.arrayHead strong.above,.arrayHead strong.below { color:var(--amber); }
+.arrayHead strong.reject,.arrayHead strong.broken,.arrayHead strong.sweep { color:var(--red); }
+.arrayHead strong.far { color:var(--muted); }
+.arrayGrid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.arrayBox { min-height:58px; padding:9px; border:1px solid var(--line); border-radius:8px; background:#171a19; display:flex; flex-direction:column; justify-content:space-between; }
+.arrayBox span { color:var(--muted); font-size:11px; text-transform:uppercase; }
+.arrayBox b { font-size:13px; overflow-wrap:anywhere; }
 .targets { padding:12px; display:grid; gap:8px; }
 .target { display:grid; grid-template-columns:80px 1fr 58px; gap:8px; align-items:center; font-size:12px; }
 .target b { font-size:12px; }
@@ -91,6 +102,7 @@ button:active { transform:translateY(1px); }
   .grid,.strip,.cols { grid-template-columns:1fr; }
   .entrySteps { grid-template-columns:repeat(2,1fr); }
   .clockGrid { grid-template-columns:1fr; }
+  .arrayGrid { grid-template-columns:repeat(2,1fr); }
   .word { font-size:25px; }
   .target { grid-template-columns:72px 1fr 52px; }
 }
@@ -126,6 +138,7 @@ button:active { transform:translateY(1px); }
           <span class="chip" id="actualChip">Actual</span>
           <span class="chip" id="resChip">Residual</span>
           <span class="chip" id="clockChip">Clock</span>
+          <span class="chip" id="arrayChip">Array</span>
         </div>
       </div>
       <div class="entryLens">
@@ -152,6 +165,19 @@ button:active { transform:translateY(1px); }
           <div class="clockBox"><span>Next Edge</span><b id="clockNext">--</b></div>
         </div>
         <div class="sub" id="clockExplain">Waiting for MYT clock phase.</div>
+      </div>
+      <div class="arrayLens">
+        <div class="arrayHead">
+          <span class="lab">Price-Time Array Lens</span>
+          <strong class="far" id="arrayVerdict">FAR</strong>
+        </div>
+        <div class="arrayGrid">
+          <div class="arrayBox"><span>Nearest Array</span><b id="arrayNearest">--</b></div>
+          <div class="arrayBox"><span>Distance</span><b id="arrayDistance">--</b></div>
+          <div class="arrayBox"><span>Vertical Window</span><b id="arrayVertical">--</b></div>
+          <div class="arrayBox"><span>Action</span><b id="arrayAction">--</b></div>
+        </div>
+        <div class="sub" id="arrayExplain">Waiting for array anchors.</div>
       </div>
       <div class="cols">
         <div class="mini"><strong>What If Now</strong><div id="whatIf" class="sub">No verdict yet.</div></div>
@@ -180,7 +206,7 @@ const fmtPx=p=>Number(p).toFixed(7);
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const minuteKey=t=>Math.floor(t/60000)*60000;
 let priceStream=[], candleMap=new Map(), candles=[], wsA=null, wsB=null, bingxTries=0, binanceTries=0, lastLive=0, liveSource='--';
-let lastClosedT=0, fetchFails=0, lastFireDay='', firesToday=0, lastState='WAIT', lastClockBest=null;
+let lastClosedT=0, fetchFails=0, lastFireDay='', firesToday=0, lastState='WAIT', lastClockBest=null, lastArrayState=null;
 const GUARD={pulseTimer:null,watchdogTimer:null,heartbeatTimer:null,lastError:'NONE',lastRoute:'BOOT',lastMessageAt:0,lastRescue:0,rescueCount:0};
 const SIPH={ws:null,buckets:new Map(),lastTradeAt:0,calV:[],calN:[],ratioV:1,ratioN:1,tries:0};
 
@@ -191,7 +217,7 @@ function mytDay(t=Date.now()){const d=new Date(t+((new Date()).getTimezoneOffset
 function updateClock(){const d=new Date(Date.now()+((new Date()).getTimezoneOffset()+480)*60000);E('mytClock').textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');E('freshAge').textContent=lastLive?Math.round((Date.now()-lastLive)/1000)+'s fresh':'no tick';}
 setInterval(updateClock,1000); updateClock();
 
-function updateCurrentCandle(px,t=Date.now()){let k=minuteKey(t);let c=candleMap.get(k);if(!c){c={t:k,o:px,h:px,l:px,c:px,v:0,n:0,tb:0,source:'live'};candleMap.set(k,c);candles.push(c);}else{c.h=Math.max(c.h,px);c.l=Math.min(c.l,px);c.c=px;c.source='live';}while(candles.length>1200){const old=candles.shift();candleMap.delete(old.t);}}
+function updateCurrentCandle(px,t=Date.now()){let k=minuteKey(t);let c=candleMap.get(k);if(!c){c={t:k,o:px,h:px,l:px,c:px,v:0,n:0,tb:0,source:'live'};candleMap.set(k,c);candles.push(c);}else{c.h=Math.max(c.h,px);c.l=Math.min(c.l,px);c.c=px;c.source='live';}while(candles.length>2600){const old=candles.shift();candleMap.delete(old.t);}}
 function rebuildCandlesFromKlines(data){candleMap.clear();candles=[];priceStream=[];for(const k of data){const t=+k[0],o=+k[1],h=+k[2],l=+k[3],c=+k[4];if(!(c>0))continue;const obj={t:minuteKey(t),o,h,l,c,v:+k[5],n:+k[8],tb:+k[9],source:'bootstrap'};candleMap.set(obj.t,obj);candles.push(obj);priceStream.push({t:obj.t+59000,px:c});}candles.sort((a,b)=>a.t-b.t);}
 function setChangeLine(px,hi,lo,pct,open24,ratio){const p=Number(pct),r=Number(ratio),o=Number(open24),h=Number(hi),l=Number(lo);if(Number.isFinite(p)){E('pctLine').textContent=(p>=0?'+':'')+p.toFixed(2)+'% 24h';return;}if(Number.isFinite(r)){const rp=r*100;E('pctLine').textContent=(rp>=0?'+':'')+rp.toFixed(2)+'% 24h';return;}if(o>0&&px>0){const op=(px-o)/o*100;E('pctLine').textContent=(op>=0?'+':'')+op.toFixed(2)+'% 24h';return;}if(h>l&&px>0){const pos=clamp((px-l)/(h-l)*100,0,100);const cur=E('pctLine').textContent;if(!cur||cur==='change --'||cur.startsWith('range pos'))E('pctLine').textContent='range pos '+pos.toFixed(0)+'%';}}
 function pushPrice(px,hi,lo,pct,open24,ratio){px=parseFloat(px);if(!(px>0))return;lastLive=Date.now();priceStream.push({t:lastLive,px});if(priceStream.length>3000)priceStream.shift();updateCurrentCandle(px,lastLive);E('livePrice').textContent=fmtPx(px);if(hi&&lo)E('range24').textContent=fmtPx(hi)+' / '+fmtPx(lo);setChangeLine(px,hi,lo,pct,open24,ratio);if(priceStream.length>1){const p0=priceStream[Math.max(0,priceStream.length-60)].px;E('ticksLine').textContent=((px-p0)/TICK).toFixed(0)+' pts vs recent';}computeAndRender();}
@@ -207,13 +233,13 @@ function guardianRescue(reason){const now=Date.now();if(now-(GUARD.lastRescue||0
 function startWatchdog(){if(GUARD.watchdogTimer)clearInterval(GUARD.watchdogTimer);GUARD.watchdogTimer=setInterval(()=>{const age=Date.now()-(lastLive||0);if(lastLive&&age>15000)restPulse();if(lastLive&&age>30000)guardianRescue('stale '+Math.round(age/1000)+'s');},4000);}
 function connectBinance(){if(binanceTries>=8){setStatus('price unavailable');return;}binanceTries++;let ws;try{ws=new WebSocket('wss://fstream.binance.com/ws/1000pepeusdt@ticker');wsB=ws;}catch(e){setStatus('binance blocked');return;}setSource('Binance WS');setStatus('connecting Binance fallback');markRoute('BINANCE_WS_CONNECTING');let timeout=setTimeout(()=>{try{ws.close();}catch(e){}},9000);ws.onmessage=ev=>{let m;try{m=JSON.parse(ev.data);}catch(e){return;}if(m&&m.c){clearTimeout(timeout);markRoute('BINANCE_WS');setSource('Binance WS');setStatus('live via Binance fallback');pushPrice(m.c,m.h,m.l,m.P,m.o);}};ws.onclose=()=>{clearTimeout(timeout);if(Date.now()-lastLive>10000)setTimeout(connectBinance,1800);};ws.onerror=()=>{streamError('Binance WS error');try{ws.close();}catch(e){}};}
 function connectBingX(){if(bingxTries>=4){connectBinance();return;}bingxTries++;let ws;try{ws=new WebSocket('wss://open-api-swap.bingx.com/swap-market');wsA=ws;ws.binaryType='arraybuffer';}catch(e){connectBinance();return;}setSource('BingX');setStatus('connecting BingX');markRoute('BINGX_WS_CONNECTING');let timeout=setTimeout(()=>{try{ws.close();}catch(e){}},9000);ws.onopen=()=>{markRoute('BINGX_WS_OPEN');startHeartbeat(ws,'BingX');try{ws.send(JSON.stringify({id:'jesus-'+Date.now(),reqType:'sub',dataType:'1000PEPE-USDT@ticker'}));}catch(e){streamError('BingX subscribe failed');}};ws.onmessage=async ev=>{const txt=await gunzip(ev.data);if(txt===null)return;if(txt==='Ping'){try{ws.send('Pong');}catch(e){}return;}let m;try{m=JSON.parse(txt);}catch(e){return;}if(m&&m.ping){try{ws.send(JSON.stringify({pong:m.ping}));}catch(e){}return;}if(m&&m.data){const d=m.data,c=d.c||d.lastPrice||d.close||d.p,h=d.h||d.highPrice,l=d.l||d.lowPrice,pct=d.P??d.priceChangePercent??d.changePercent,ratio=d.priceChangeRate??d.changeRate??d.r??d.rate,open24=d.o||d.open||d.openPrice;if(c){clearTimeout(timeout);markRoute('BINGX_WS');setSource('BingX');setStatus('live via BingX');pushPrice(c,h,l,pct,open24,ratio);}}};ws.onclose=()=>{clearTimeout(timeout);if(Date.now()-lastLive>10000)setTimeout(connectBingX,1600);};ws.onerror=()=>{streamError('BingX WS error');try{ws.close();}catch(e){}};}
-async function bootstrapHistory(){try{setStatus('loading Binance 1m bootstrap');const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=1000PEPEUSDT&interval=1m&limit=900',{cache:'no-store'});const data=await r.json();if(Array.isArray(data)){rebuildCandlesFromKlines(data);setStatus('bootstrap loaded');log('info','bootstrap loaded '+candles.length+' bars');computeAndRender();}}catch(e){setStatus('bootstrap failed');}}
+async function bootstrapHistory(){try{setStatus('loading Binance 1m bootstrap');const baseUrl='https://fapi.binance.com/fapi/v1/klines?symbol=1000PEPEUSDT&interval=1m';const r=await fetch(baseUrl+'&limit=1500',{cache:'no-store'});const data=await r.json();let all=Array.isArray(data)?data:[];if(all.length>0){const first=+all[0][0];try{const r2=await fetch(baseUrl+'&limit=1000&endTime='+(first-1),{cache:'no-store'});const older=await r2.json();if(Array.isArray(older))all=older.concat(all);}catch(e){streamError('older bootstrap failed: '+e.message);}}if(all.length>0){rebuildCandlesFromKlines(all);setStatus('bootstrap loaded');log('info','bootstrap loaded '+candles.length+' bars');computeAndRender();}}catch(e){setStatus('bootstrap failed');}}
 function sync(){bingxTries=0;binanceTries=0;lastLive=0;closeSockets();setStatus('syncing');bootstrapHistory().finally(()=>{restPulse();connectBingX();startRestPulse();startWatchdog();});}
 
 function siphBucket(k){let b=SIPH.buckets.get(k);if(!b){b={v:0,n:0,tb:0};SIPH.buckets.set(k,b);for(const kk of SIPH.buckets.keys())if(k-kk>15*60000)SIPH.buckets.delete(kk);}return b;}
 function connectSiphon(){let ws;try{ws=new WebSocket('wss://open-api-swap.bingx.com/swap-market');SIPH.ws=ws;ws.binaryType='arraybuffer';}catch(e){return;}ws.onopen=()=>{SIPH.tries=0;try{ws.send(JSON.stringify({id:'jesus-siphon-'+Date.now(),reqType:'sub',dataType:'1000PEPE-USDT@trade'}));}catch(e){}};ws.onmessage=async ev=>{let txt=typeof ev.data==='string'?ev.data:await gunzip(ev.data);if(txt===null)return;if(txt==='Ping'||(txt.includes&&txt.includes('Ping'))){try{ws.send(txt.replace('Ping','Pong'));}catch(e){}return;}let m;try{m=JSON.parse(txt);}catch(e){return;}if(m&&m.ping){try{ws.send(JSON.stringify({pong:m.ping}));}catch(e){}return;}if(m&&m.data&&m.data.length>0){SIPH.lastTradeAt=Date.now();for(const tr of m.data){const q=parseFloat(tr.q);if(!(q>0))continue;const tt=+tr.T||+tr.t||Date.now();const b=siphBucket(minuteKey(tt));b.v+=q;b.n+=1;if(!tr.m)b.tb+=q;}}};ws.onclose=()=>{SIPH.tries++;setTimeout(connectSiphon,Math.min(15000,1500*SIPH.tries));};ws.onerror=()=>{try{ws.close();}catch(e){}};}
 function siphCalibrate(bar){const b=SIPH.buckets.get(bar.t);if(!b||b.n<30||!(bar.v>0)||!(bar.n>0))return;const med=a=>{const s=[...a].sort((x,y)=>x-y);return s[s.length>>1];};SIPH.calV.push(bar.v/b.v);if(SIPH.calV.length>60)SIPH.calV.shift();SIPH.calN.push(bar.n/b.n);if(SIPH.calN.length>60)SIPH.calN.shift();SIPH.ratioV=med(SIPH.calV);SIPH.ratioN=med(SIPH.calN);}
-async function pullClosed(){const want=minuteKey(Date.now())-60000;if(lastClosedT>=want)return;try{const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=1000PEPEUSDT&interval=1m&limit=5',{cache:'no-store'});const data=await r.json();if(!Array.isArray(data))throw new Error('bad kline');const cutoff=minuteKey(Date.now());for(const k of data){const t=minuteKey(+k[0]);if(t<cutoff){const b={t,o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5],n:+k[8],tb:+k[9],source:'kline'};candleMap.set(t,b);const ix=candles.findIndex(x=>x.t===t);if(ix>=0)candles[ix]=b;else candles.push(b);siphCalibrate(b);lastClosedT=Math.max(lastClosedT,t);}}candles.sort((a,b)=>a.t-b.t);while(candles.length>1200){const old=candles.shift();candleMap.delete(old.t);}fetchFails=0;computeAndRender();}catch(e){fetchFails++;if(fetchFails>=2){const c=candleMap.get(want);if(c){const sb=SIPH.buckets.get(want);if(sb&&sb.n>0){c.v=sb.v*SIPH.ratioV;c.n=Math.max(1,Math.round(sb.n*SIPH.ratioN));c.tb=sb.tb*SIPH.ratioV;c.source='siphon';}lastClosedT=Math.max(lastClosedT,want);computeAndRender();}}}}
+async function pullClosed(){const want=minuteKey(Date.now())-60000;if(lastClosedT>=want)return;try{const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=1000PEPEUSDT&interval=1m&limit=5',{cache:'no-store'});const data=await r.json();if(!Array.isArray(data))throw new Error('bad kline');const cutoff=minuteKey(Date.now());for(const k of data){const t=minuteKey(+k[0]);if(t<cutoff){const b={t,o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5],n:+k[8],tb:+k[9],source:'kline'};candleMap.set(t,b);const ix=candles.findIndex(x=>x.t===t);if(ix>=0)candles[ix]=b;else candles.push(b);siphCalibrate(b);lastClosedT=Math.max(lastClosedT,t);}}candles.sort((a,b)=>a.t-b.t);while(candles.length>2600){const old=candles.shift();candleMap.delete(old.t);}fetchFails=0;computeAndRender();}catch(e){fetchFails++;if(fetchFails>=2){const c=candleMap.get(want);if(c){const sb=SIPH.buckets.get(want);if(sb&&sb.n>0){c.v=sb.v*SIPH.ratioV;c.n=Math.max(1,Math.round(sb.n*SIPH.ratioN));c.tb=sb.tb*SIPH.ratioV;c.source='siphon';}lastClosedT=Math.max(lastClosedT,want);computeAndRender();}}}}
 setInterval(pullClosed,5000);
 
 function vals(name){return candles.map(b=>b[name]);}
@@ -248,7 +274,65 @@ function clockForMinute(minute=mytMinuteNow()){for(const w of CLOCK_WINDOWS){if(
 function nextClockEdge(minute=mytMinuteNow()){let best=null;for(const w of CLOCK_WINDOWS){if(!CLOCK_EDGE_LABELS.includes(w.label))continue;const delta=(w.start-minute+1440)%1440;if(delta>0&&(best===null||delta<best.delta))best={delta,w};}return best;}
 function clockFitsTarget(w,best){if(!best)return false;const pts=best.model.target_points,h=best.model.horizon_minutes;if(w.label==='PRIME')return pts>=350&&pts<=700;if(w.label==='QUALITY')return pts>=350&&pts<=700;if(w.label==='RUNNER')return pts>=700||h===245;if(w.label==='SELECTIVE')return pts<=500&&h<=79;if(w.label==='BUILD')return pts>=500&&h>=79;if(w.label==='NORMAL')return pts<=500;return false;}
 function updateClockLens(best=null){if(best)lastClockBest=best;const active=best||lastClockBest,w=clockForMinute(),next=nextClockEdge(),fit=active?clockFitsTarget(w,active):false;E('clockVerdict').textContent=w.label;E('clockVerdict').className=w.cls;E('clockWindow').textContent=w.window;E('clockFocus').textContent=w.focus;if(next){const h=Math.floor(next.delta/60),m=next.delta%60;E('clockNext').textContent=hhmm(next.w.start)+' '+next.w.label+' in '+h+'h '+m+'m';}else E('clockNext').textContent='--';let txt=w.note;if(active){const top=active.model.target_points+'/'+active.model.horizon_minutes+'m';txt+=' Top target '+top+(fit?' fits this clock.':' needs extra confirmation in this clock.');}E('clockExplain').textContent=txt;const chip=E('clockChip');if(chip){chip.textContent=w.label;chip.className='chip '+((w.cls==='caution'||w.cls==='noisy')?'bad':((w.cls==='normal'||w.cls==='selective')?'warn':'on'));}return w;}
-function updateEntryLens(f,best,direction,word,danger,clock){
+
+const ARRAY_ANCHORS=[
+{time:'08:00',minute:480,role:'open array',rank:.54},
+{time:'09:44',minute:584,role:'reaction',rank:.69},
+{time:'09:47',minute:587,role:'reaction',rank:.36},
+{time:'09:52',minute:592,role:'reaction',rank:.21},
+{time:'10:08',minute:608,role:'confluence',rank:.62},
+{time:'12:14',minute:734,role:'control',rank:.43},
+{time:'14:08',minute:848,role:'control',rank:.72},
+{time:'16:09',minute:969,role:'confluence',rank:.57},
+{time:'21:21',minute:1281,role:'magnet',rank:.07},
+{time:'22:17',minute:1337,role:'magnet',rank:.28},
+{time:'22:38',minute:1358,role:'magnet',rank:.69},
+{time:'23:24',minute:1404,role:'liquidity',rank:.38},
+{time:'23:57',minute:1437,role:'liquidity',rank:.55},
+{time:'00:56',minute:56,role:'clean reaction',rank:.85},
+{time:'02:26',minute:146,role:'reaction',rank:.60},
+{time:'03:04',minute:184,role:'clean reaction',rank:.91},
+{time:'03:17',minute:197,role:'clean reaction',rank:1.00},
+{time:'03:29',minute:209,role:'reaction',rank:.69},
+{time:'04:13',minute:253,role:'clean reaction',rank:.95},
+{time:'06:22',minute:382,role:'liquidity',rank:.49},
+{time:'07:09',minute:429,role:'handover',rank:.43}
+];
+const ARRAY_BY_MIN=new Map(ARRAY_ANCHORS.map(a=>[a.minute,a]));
+const VERTICAL_WINDOWS=[
+{time:'09:10',minute:550,role:'EXPAND',rank:.74},
+{time:'10:04',minute:604,role:'TRANSITION',rank:.61},
+{time:'10:46',minute:646,role:'TRANSITION',rank:.54},
+{time:'12:26',minute:746,role:'WATCH',rank:.42},
+{time:'12:41',minute:761,role:'WATCH',rank:.38},
+{time:'12:46',minute:766,role:'WATCH',rank:.39},
+{time:'14:12',minute:852,role:'WATCH',rank:.43},
+{time:'15:39',minute:939,role:'WATCH',rank:.37},
+{time:'16:09',minute:969,role:'CONFLUENCE',rank:.52},
+{time:'16:59',minute:1019,role:'TRANSITION',rank:.56},
+{time:'17:23',minute:1043,role:'WATCH',rank:.35},
+{time:'17:32',minute:1052,role:'WATCH',rank:.35},
+{time:'18:24',minute:1104,role:'WATCH',rank:.44},
+{time:'19:23',minute:1163,role:'WATCH',rank:.46},
+{time:'21:04',minute:1264,role:'EXPAND',rank:.84},
+{time:'21:08',minute:1268,role:'EXPAND',rank:.86},
+{time:'23:36',minute:1416,role:'EXPAND',rank:.89},
+{time:'00:03',minute:3,role:'EXPAND',rank:.99},
+{time:'00:26',minute:26,role:'EXPAND',rank:.88},
+{time:'00:59',minute:59,role:'EXPAND',rank:.85},
+{time:'02:22',minute:142,role:'TRANSITION',rank:.61},
+{time:'03:33',minute:213,role:'TRANSITION',rank:.50}
+];
+function mytParts(t){const d=new Date(t+((new Date()).getTimezoneOffset()+480)*60000);return {date:d.toISOString().slice(0,10),minute:d.getHours()*60+d.getMinutes(),hhmm:String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};}
+function rankWord(meta){return meta.rank>=.85?'clean':meta.role;}
+function signedMinuteDelta(target,minute){const f=(target-minute+1440)%1440;const p=f-1440;return Math.abs(f)<=Math.abs(p)?f:p;}
+function activeArrays(){const now=Date.now(),out=[];for(const c of candles){const parts=mytParts(c.t),meta=ARRAY_BY_MIN.get(parts.minute);if(!meta)continue;const age=(now-c.t)/60000;if(age<0||age>1740)continue;out.push({line:c.l,candle:c,meta,date:parts.date,age});}return out;}
+function nearestVerticalWindow(minute=mytMinuteNow()){let best=null;for(const v of VERTICAL_WINDOWS){const delta=signedMinuteDelta(v.minute,minute),abs=Math.abs(delta);if(!best||abs<best.abs)best={meta:v,delta,abs};}if(!best)return null;best.active=best.abs<=8;best.near=best.abs<=15;return best;}
+function arrayStatusClass(status){const s=String(status||'far').toLowerCase();return s==='reclaim'?'reclaim':s==='reject'?'reject':s==='broken'?'broken':s==='touch'?'touch':s==='above'?'above':s==='below'?'below':'far';}
+function formatVertical(v){if(!v)return '--';const side=v.delta>=0?'in ':'past ';const mins=Math.abs(v.delta);if(v.active)return v.meta.time+' '+v.meta.role+' now';if(v.near)return v.meta.time+' '+v.meta.role+' '+side+mins+'m';return v.meta.time+' '+v.meta.role+' in '+((v.meta.minute-mytMinuteNow()+1440)%1440)+'m';}
+function updateArrayLens(direction,best){const el=E('arrayVerdict');if(!el)return null;if(candles.length<20){el.textContent='WAIT';el.className='watch';E('arrayNearest').textContent='--';E('arrayDistance').textContent='--';E('arrayVertical').textContent='--';E('arrayAction').textContent='Need more bars';E('arrayExplain').textContent='Waiting for enough 1m candles to build your automatic price-time arrays.';return null;}const px=candles[candles.length-1].c,arrays=activeArrays(),vertical=nearestVerticalWindow();if(!arrays.length){lastArrayState={status:'WAIT',cls:'watch',signal:null,near:false,verticalActive:vertical?vertical.active:false};el.textContent='WAIT';el.className='watch';E('arrayNearest').textContent='No active anchor';E('arrayDistance').textContent='--';E('arrayVertical').textContent=formatVertical(vertical);E('arrayAction').textContent='Wait for anchor';E('arrayExplain').textContent='No saved horizontal array is inside the current lookback window yet.';return lastArrayState;}let nearest=null;for(const a of arrays){const dist=(px-a.line)/TICK,abs=Math.abs(dist);if(!nearest||abs<nearest.abs)nearest={...a,dist,abs};}const recent=candles.slice(-21),recentHigh=Math.max(...recent.map(c=>c.h)),recentLow=Math.min(...recent.map(c=>c.l));const sweptBelow=(recentLow-nearest.line)/TICK<-80,spikedAbove=(recentHigh-nearest.line)/TICK>80,reclaimed=sweptBelow&&nearest.dist>20,rejected=spikedAbove&&nearest.dist<-20,broken=nearest.dist<-100;let status='FAR',signal=null,action='No array edge',explain='Nearest automatic array is far from live price. Trade from JESUS state and Entry Lens first.';if(reclaimed){status='RECLAIM';signal='long';action='LONG reclaim watch';explain='Price swept below this horizontal array and reclaimed it. That is a long-side reaction only if JESUS bias and Entry Lens agree.';}else if(rejected){status='REJECT';signal='short';action='SHORT rejection watch';explain='Price pushed above this horizontal array and fell back under it. That is a short-side reaction only if JESUS bias and Entry Lens agree.';}else if(broken){status='BROKEN';signal='short';action='SHORT break watch';explain='Price is trading below the array after pressure through it. Avoid longs until price reclaims the line.';}else if(nearest.abs<=50){status='TOUCH';action='Wait reaction';explain='Price is touching your automatic horizontal line. Do not enter from touch alone; wait for reclaim, rejection, or Entry Lens confirmation.';}else if(nearest.dist>0&&nearest.abs<=300){status='ABOVE';action='Above array';explain='Price is above the nearest array. For longs, this line should hold; for shorts, wait for loss of the line.';}else if(nearest.dist<0&&nearest.abs<=300){status='BELOW';action='Below array';explain='Price is below the nearest array. Longs need a reclaim; shorts still need JESUS and Entry Lens confirmation.';}const cls=arrayStatusClass(status);const vtxt=formatVertical(vertical);const verticalBoost=vertical&&(vertical.active||vertical.near);if(verticalBoost&&status!=='FAR')action+=' @ '+vertical.meta.role.toLowerCase()+' time';if(signal&&direction){const aligned=(signal==='long'&&direction==='LONG')||(signal==='short'&&direction==='SHORT');if(!aligned)action='Conflict: wait';}el.textContent=status;el.className=cls;E('arrayNearest').textContent=nearest.meta.time+' '+rankWord(nearest.meta)+' @ '+fmtPx(nearest.line);E('arrayDistance').textContent=(nearest.dist>=0?'+':'')+nearest.dist.toFixed(0)+'t';E('arrayVertical').textContent=vtxt;E('arrayAction').textContent=action;E('arrayExplain').textContent=explain+' Anchor age '+Math.round(nearest.age)+'m; vertical window '+vtxt+'.';const chip=E('arrayChip');if(chip){let chipCls='';if(signal&&direction){const aligned=(signal==='long'&&direction==='LONG')||(signal==='short'&&direction==='SHORT');chipCls=aligned?'on':'bad';}else if(status==='TOUCH'||status==='ABOVE'||status==='BELOW')chipCls='warn';chip.textContent=status;chip.className='chip '+chipCls;}lastArrayState={status,cls,signal,near:nearest.abs<=300,verticalActive:vertical?vertical.active:false,verticalNear:vertical?vertical.near:false,dist:nearest.dist,meta:nearest.meta};return lastArrayState;}
+
+function updateEntryLens(f,best,direction,word,danger,clock,array){
 const verdict=E('entryVerdict');if(!verdict)return;
 const dirSign=direction==='LONG'?1:-1,thr=best.model.threshold;
 const pulse=signed(f.mom_1,dirSign),ignition=signed(f.mom_4,dirSign),entry=signed(f.mom_13,dirSign),confirm=signed(f.mom_39,dirSign);
@@ -271,9 +355,16 @@ else if(runway){explain='Runway exists, but the lower-time-frame entry panes are
 if(clock&&(clock.cls==='caution'||clock.cls==='noisy')&&label==='ENTER'&&!(best.score>=thr&&onCount===4)){label='WAIT';klass='wait';explain='Clock Lens is '+clock.label+'. Require ACTUAL state or all four Entry Lens panes before entering.';}
 else if(clock&&(clock.cls==='prime'||clock.cls==='quality')&&label==='WAIT'&&runway&&onCount>=2&&badCount<=1){explain+=' Clock Lens supports the setup, but timing is not complete yet.';}
 else if(clock&&(clock.cls==='caution'||clock.cls==='noisy')&&label==='WAIT'){explain+=' Clock Lens says this is a stricter window.';}
+if(array&&label==='ENTER'){
+  const aligned=(array.signal==='long'&&direction==='LONG')||(array.signal==='short'&&direction==='SHORT');
+  const conflicts=(array.signal==='long'&&direction==='SHORT')||(array.signal==='short'&&direction==='LONG');
+  if(array.status==='TOUCH'){label='WAIT';klass='wait';explain='Price is touching a Price-Time Array. Wait for reclaim, rejection, or cleaner Entry Lens confirmation before entering.';}
+  else if(conflicts){label='WAIT';klass='wait';explain='Price-Time Array Lens conflicts with the trade direction. Wait for the next cleaner confirmation.';}
+  else if(aligned){explain+=' Price-Time Array Lens supports this direction.';}
+}
 verdict.textContent=label;verdict.className=klass;E('entryExplain').textContent=explain;
 }
-function computeAndRender(){E('barCount').textContent=candles.length+' bars';const f=featureNow();if(!f)return;const entries=Object.entries(PARAMS.models);const scored=entries.map(([k,m])=>{const s=scoreModel(m.score_model,f);return {key:k,model:m,score:s,dir:dirRaw(m.direction_model,f)};}).sort((a,b)=>b.score-a.score);const best=scored.find(x=>x.key===PARAMS.best_model_key)||scored[0];const pct=clamp(best.score,0,100);E('mainFill').style.width=pct+'%';let word='WAIT',cls='wait';const thr=best.model.threshold;if(best.score>=thr){word='ACTUAL STATE';cls='actual';}else if(best.score>=thr*.94){word='FORMATION';cls='form';}else if(best.score>=thr*.86){word='PRE-FORMATION';cls='pre';}else if((f.chop_39||0)>2.6&&(f.entropy_39||0)>.92){word='RESIDUAL / CHOP';cls='danger';}const state=E('stateWord');state.textContent=word;state.className='word '+cls;const direction=best.dir>=0?'LONG':'SHORT';const danger=(Math.abs(best.dir)<0.03||(f.chop_39||0)>3.2);const clock=updateClockLens(best);updateEntryLens(f,best,direction,word,danger,clock);E('stateLine').textContent=`${best.model.target_points} points within ${best.model.horizon_minutes}m | score ${best.score.toFixed(1)} / trigger ${thr.toFixed(1)} | bias ${direction}`;E('whatIf').innerHTML=danger?`<span class="warn">Caution</span> - ${direction} bias is thin or path is choppy. Trade-now score ${best.score.toFixed(1)}.`:`<span class="good">${direction}</span> favored. Trade-now score ${best.score.toFixed(1)} with target ${best.model.target_points} pts.`;E('runway').textContent=`Top runway: ${best.model.target_points} pts, ${best.model.horizon_minutes}m. Range39 ${(f.range_39||0).toFixed(0)} pts, Range79 ${(f.range_79||0).toFixed(0)} pts.`;E('leadTime').textContent=best.score>=thr?'Arrival window active now':best.score>=thr*.86?'Lead state forming; wait for score expansion':'No scored arrival yet';E('geom').textContent=`geometry ${(f.k_geometry||0).toFixed(2)} | chop39 ${(f.chop_39||0).toFixed(2)} | entropy39 ${(f.entropy_39||0).toFixed(2)}`;E('flow').textContent=`flow ${(f.flow_imbalance||0).toFixed(2)} | volume z ${(f.volume_z||0).toFixed(2)} | count z ${(f.count_z||0).toFixed(2)}`;E('anti').textContent=`contradiction ${(f.k_contradiction||0).toFixed(2)} | velocity ${(f.k_velocity||0).toFixed(2)} | volatility ${(f.k_volatility||0).toFixed(2)}`;for(const [id,on] of [['preChip',best.score>=thr*.86],['formChip',best.score>=thr*.94],['actualChip',best.score>=thr],['resChip',word.startsWith('RESIDUAL')]])E(id).className='chip '+(on?(id==='resChip'?'warn':'on'):'');renderTargets(scored.slice(0,12));const today=mytDay();if(today!==lastFireDay){lastFireDay=today;firesToday=0;}if(word!==lastState){log(cls==='actual'?'good':cls==='danger'?'warn':'info',word+' | '+direction+' | '+best.score.toFixed(1));lastState=word;if(cls==='actual')firesToday++;}E('fireCount').textContent=firesToday+' fires today';}
+function computeAndRender(){E('barCount').textContent=candles.length+' bars';const f=featureNow();if(!f)return;const entries=Object.entries(PARAMS.models);const scored=entries.map(([k,m])=>{const s=scoreModel(m.score_model,f);return {key:k,model:m,score:s,dir:dirRaw(m.direction_model,f)};}).sort((a,b)=>b.score-a.score);const best=scored.find(x=>x.key===PARAMS.best_model_key)||scored[0];const pct=clamp(best.score,0,100);E('mainFill').style.width=pct+'%';let word='WAIT',cls='wait';const thr=best.model.threshold;if(best.score>=thr){word='ACTUAL STATE';cls='actual';}else if(best.score>=thr*.94){word='FORMATION';cls='form';}else if(best.score>=thr*.86){word='PRE-FORMATION';cls='pre';}else if((f.chop_39||0)>2.6&&(f.entropy_39||0)>.92){word='RESIDUAL / CHOP';cls='danger';}const state=E('stateWord');state.textContent=word;state.className='word '+cls;const direction=best.dir>=0?'LONG':'SHORT';const danger=(Math.abs(best.dir)<0.03||(f.chop_39||0)>3.2);const clock=updateClockLens(best);const array=updateArrayLens(direction,best);updateEntryLens(f,best,direction,word,danger,clock,array);E('stateLine').textContent=`${best.model.target_points} points within ${best.model.horizon_minutes}m | score ${best.score.toFixed(1)} / trigger ${thr.toFixed(1)} | bias ${direction}`;E('whatIf').innerHTML=danger?`<span class="warn">Caution</span> - ${direction} bias is thin or path is choppy. Trade-now score ${best.score.toFixed(1)}.`:`<span class="good">${direction}</span> favored. Trade-now score ${best.score.toFixed(1)} with target ${best.model.target_points} pts.`;E('runway').textContent=`Top runway: ${best.model.target_points} pts, ${best.model.horizon_minutes}m. Range39 ${(f.range_39||0).toFixed(0)} pts, Range79 ${(f.range_79||0).toFixed(0)} pts.`;E('leadTime').textContent=best.score>=thr?'Arrival window active now':best.score>=thr*.86?'Lead state forming; wait for score expansion':'No scored arrival yet';E('geom').textContent=`geometry ${(f.k_geometry||0).toFixed(2)} | chop39 ${(f.chop_39||0).toFixed(2)} | entropy39 ${(f.entropy_39||0).toFixed(2)}`;E('flow').textContent=`flow ${(f.flow_imbalance||0).toFixed(2)} | volume z ${(f.volume_z||0).toFixed(2)} | count z ${(f.count_z||0).toFixed(2)}`;E('anti').textContent=`contradiction ${(f.k_contradiction||0).toFixed(2)} | velocity ${(f.k_velocity||0).toFixed(2)} | volatility ${(f.k_volatility||0).toFixed(2)}`;for(const [id,on] of [['preChip',best.score>=thr*.86],['formChip',best.score>=thr*.94],['actualChip',best.score>=thr],['resChip',word.startsWith('RESIDUAL')]])E(id).className='chip '+(on?(id==='resChip'?'warn':'on'):'');renderTargets(scored.slice(0,12));const today=mytDay();if(today!==lastFireDay){lastFireDay=today;firesToday=0;}if(word!==lastState){log(cls==='actual'?'good':cls==='danger'?'warn':'info',word+' | '+direction+' | '+best.score.toFixed(1));lastState=word;if(cls==='actual')firesToday++;}E('fireCount').textContent=firesToday+' fires today';}
 function renderTargets(rows){const el=E('targetGrid');el.innerHTML='<div class="lab">Target Scores</div>'+rows.map(r=>`<div class="target"><b>${r.model.target_points}/${r.model.horizon_minutes}m</b><span class="bar"><i style="width:${clamp(r.score,0,100)}%;background:${r.score>=r.model.threshold?'var(--green)':'var(--cyan)'}"></i></span><span>${r.score.toFixed(1)}</span></div>`).join('');}
 function wake(why){setStatus('resyncing on '+why);if(Date.now()-(lastLive||0)>8000||socketState(wsA)!=='OPEN'){restPulse();bingxTries=0;binanceTries=0;closeSockets();setTimeout(connectBingX,300);}if(Date.now()-SIPH.lastTradeAt>8000){try{if(SIPH.ws){SIPH.ws.onclose=null;SIPH.ws.close();}}catch(e){}SIPH.ws=null;SIPH.tries=0;connectSiphon();}pullClosed();}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)wake('return');});
